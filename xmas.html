@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>シンプルなモノクロラインアート</title>
+    <!-- Tailwind CSSの読み込み (使用しないが念のため残す) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font: Cutive Mono (オールドなタイプライター風フォント) を追加 -->
+    <link href="https://fonts.googleapis.com/css2?family=Cutive+Mono&display=swap" rel="stylesheet">
+    <style>
+        /* 背景色を白に設定 */
+        body {
+            background-color: #FFFFFF; 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            margin: 0;
+            overflow: hidden;
+            /* 全体のフォントをCutive Monoに設定 */
+            font-family: 'Cutive Mono', monospace;
+        }
+        /* キャンバスを囲むコンテナ */
+        .art-container {
+            width: 100%;
+            height: 100%;
+        }
+        /* キャンバス自体 */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        /* コントロールパネルのスタイルは削除 */
+    </style>
+</head>
+<body>
+    <div class="art-container">
+        <!-- キャンバス要素 -->
+        <canvas id="raceCanvas"></canvas>
+    </div>
+
+    <!-- コントロールパネル要素を削除 -->
+
+    <script>
+        // グローバル変数
+        const canvas = document.getElementById('raceCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 複数の文字セット（ストリーム）を格納する配列
+        let characterSets = []; 
+        // メッセージを固定値に戻す
+        let currentText = "MERRY CHRISTMAS"; 
+        
+        // キャンバスサイズの設定
+        let D_W;
+        let D_H;
+        let charSize;       // 文字のフォントサイズ
+        let charSpacing;    // 文字間の間隔
+        // スピード係数を固定値に戻す
+        let globalSpeedFactor = 1.0; 
+
+        // カラーパレットを白黒に設定
+        const characterColor = '#000000'; // 文字は黒
+        const lineColor = 'rgba(0, 0, 0, 0.3)'; // ラインは半透明の黒（より薄く）
+
+        /**
+         * キャンバスと文字の基本設定を初期化し、文字セットを作成します
+         */
+        function initializeCanvas() {
+            D_W = window.innerWidth;
+            D_H = window.innerHeight; 
+
+            canvas.width = D_W;
+            canvas.height = D_H;
+            
+            // 文字サイズを調整 (画面の高さに応じて動的に決定)
+            charSize = Math.max(12, Math.min(30, D_H / 20)); 
+            charSpacing = charSize * 1.5; 
+            
+            // フォント設定
+            ctx.font = `${charSize}px 'Cutive Mono', monospace`; 
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 既存の文字オブジェクトをクリア
+            characterSets = [];
+
+            const charLength = currentText.length;
+            if (charLength === 0) return; // メッセージがない場合は処理を中断
+            
+            // 1セットが占める高さ (安全マージンとして1.2倍)
+            const stackHeight = charSpacing * charLength * 1.2; 
+            
+            // 画面に収めるストリームの数 (非重なりを保証)
+            const numStreams = Math.max(1, Math.floor(D_H / stackHeight)); 
+
+            // ストリーム間の均等な間隔
+            const verticalOffset = (D_H - (stackHeight * numStreams)) / (numStreams + 1); 
+
+            // 複数セットの初期化
+            for (let i = 0; i < numStreams; i++) {
+                // ストリームの開始Y座標を計算
+                const startY = verticalOffset + i * stackHeight + stackHeight * 0.1;
+                
+                const currentSet = [];
+                
+                // 独立した水平方向のランダムな初期位置 
+                const initialXOffset = Math.random() * D_W; 
+
+                // 1セット内の文字オブジェクトの初期化
+                currentText.split('').forEach((char, index) => {
+                    const initialY = startY + (charSpacing * index);
+                    
+                    // 基本速度 (2〜4)
+                    const baseSpeed = 2 + Math.random() * 2; 
+                    
+                    // 振幅 (微細な動き: 1〜3程度)
+                    const amplitude = Math.random() * 2 + 1; 
+                    // 周波数 (ゆっくりとした揺れ)
+                    const frequency = 0.01 + Math.random() * 0.02; 
+                    
+                    // 動きのタイプを簡素化 
+                    const movementType = Math.floor(Math.random() * 3); // 3パターンに限定
+
+                    currentSet.push({
+                        char: char,       
+                        x: initialXOffset, 
+                        y: initialY,      
+                        baseY: initialY,  // 動きの中心となるY座標
+                        baseVx: baseSpeed,
+                        vx: baseSpeed,    // X方向の速度 (初期値)
+                        time: Math.random() * 100, 
+                        amplitude: amplitude,
+                        frequency: frequency,
+                        type: movementType,
+                        color: characterColor 
+                    });
+                });
+                characterSets.push(currentSet);
+            }
+        }
+
+        /**
+         * 画面を完全に白でクリアします。
+         */
+        function fadeCanvas() {
+            ctx.fillStyle = '#FFFFFF'; 
+            ctx.fillRect(0, 0, D_W, D_H);
+        }
+        
+        /**
+         * 全ての文字セット内の文字を更新し、移動させます。
+         */
+        function updateCharacters() {
+            const charWidth = ctx.measureText("W").width;
+            
+            characterSets.forEach(set => {
+                set.forEach(char => {
+                    char.time += char.frequency;
+
+                    // 速度にグローバルスピード係数を適用
+                    const speed = char.baseVx * globalSpeedFactor;
+                    
+                    // X方向のランダムなズレを導入 (競争感)
+                    char.vx = speed + (Math.random() - 0.5) * 0.1; // ズレを微調整
+
+                    // Y位置の計算
+                    let currentY = char.baseY;
+
+                    // 微細で簡易な動きのパターンを適用
+                    switch (char.type) {
+                        case 0: // 標準的な微細な振動 (サイン波)
+                            currentY += Math.sin(char.time * 2) * (char.amplitude * 0.5); 
+                            break;
+                        case 1: // 少し遅い波 (コサイン波)
+                            currentY += Math.cos(char.time * 0.5) * (char.amplitude * 0.8);
+                            break;
+                        case 2: // 僅かなノイズ (ランダムノイズ)
+                            currentY += (Math.random() - 0.5) * 0.8;
+                            break;
+                    }
+
+                    // 基本的なX方向の移動
+                    char.x += char.vx;
+                    char.y = currentY;
+
+                    // 画面の右端を超えたら初期位置に戻す (ループ)
+                    if (char.x > D_W + charWidth) {
+                        // 左端に戻す際、ランダムな開始X位置にしてストリームのスタートをバラつかせる
+                        char.x = -charWidth * (Math.random() * 5 + 1); 
+                    }
+                });
+            });
+        }
+        
+        /**
+         * 1セット内のアルファベットの間にラインを描画します。
+         */
+        function drawLines(set) {
+            if (set.length < 2) return;
+
+            // 各文字間のラインを個別に描画
+            for (let i = 0; i < set.length - 1; i++) {
+                const char1 = set[i];
+                const char2 = set[i + 1];
+
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = lineColor; 
+
+                ctx.beginPath();
+                // 描画を中央から次の文字の中央へ
+                ctx.moveTo(char1.x, char1.y);
+                ctx.lineTo(char2.x, char2.y);
+                ctx.stroke();
+            }
+        }
+
+        /**
+         * 1セット内の文字を描画します。
+         */
+        function drawCharacters(set) {
+            set.forEach(char => {
+                // 文字本体の描画（黒）
+                ctx.fillStyle = char.color; 
+                
+                // 影を薄くして、簡易な雰囲気を出す
+                ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
+                ctx.shadowBlur = 1; 
+                
+                // スペース文字は描画しない
+                if (char.char.trim() !== "") {
+                    ctx.fillText(char.char, char.x, char.y);
+                }
+            });
+            // 影をリセット
+            ctx.shadowBlur = 0;
+        }
+
+        /**
+         * メインのアニメーションループ
+         */
+        function animate() {
+            // 前のフレームを完全に消去 
+            fadeCanvas(); 
+            
+            // 全ての文字の位置を更新
+            updateCharacters();
+            
+            // 全てのセットをループして描画
+            characterSets.forEach(set => {
+                // 文字間をラインで繋ぐ
+                drawLines(set);
+                // 文字を描画
+                drawCharacters(set);
+            });
+            
+            // 次のフレームをリクエスト
+            requestAnimationFrame(animate);
+        }
+
+        // --- イベントリスナー ---
+
+        // メッセージ入力の変更ハンドラ (削除)
+        // スピードスライダーの変更ハンドラ (削除)
+
+        /** ウィンドウリサイズハンドラ */
+        window.addEventListener('resize', initializeCanvas);
+        
+        // --- 初回起動 ---
+        initializeCanvas();
+        animate(); 
+
+    </script>
+</body>
+</html>
