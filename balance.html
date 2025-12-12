@@ -34,7 +34,7 @@
 </head>
 <body>
 
-    <!-- 画面全体にフィットするコンテナ (指示テキストは削除) -->
+    <!-- 画面全体にフィットするコンテナ -->
     <div id="matter-container"></div>
     
     <script>
@@ -61,7 +61,7 @@
             // サイズ A * PHI (幅)
             'square': { label: '正方形', density: 0.0012, initialSize: GOLDEN_SIZE_1, friction: 0.8 }, 
             // サイズ W * H (W/H = PHI)
-            'rectangle': { label: '長方形', density: 00015, initialSize: { w: GOLDEN_SIZE_1, h: BASE_SIZE }, friction: 0.9 }, 
+            'rectangle': { label: '長方形', density: 0.0015, initialSize: { w: GOLDEN_SIZE_1, h: BASE_SIZE }, friction: 0.9 }, 
             
             // サイズ A * PHI^2 (最も大きく、不安定要素を強調)
             'donut': { label: 'ドーナツ', density: 0.0020, initialSize: GOLDEN_SIZE_2, friction: 0.6 }, 
@@ -99,19 +99,23 @@
                 }
             });
 
-            // 3. 画面の四隅に壁を作成 (地面の代わり) - 黒塗り
+            // 3. 画面の左右の壁と見えない地面を作成
             const wallThickness = 50;
+            // 左右の壁のレンダリング設定（黒）
             const wallRender = { fillStyle: 'black', strokeStyle: 'black', lineWidth: 0 };
             
-            // 円の欠けを修正するため、下の壁の中心Y座標を1ピクセル上に調整
+            // 見えない地面のレンダリング設定 (背景色に合わせて白に設定)
+            const invisibleGroundRender = { fillStyle: 'white', strokeStyle: 'white', lineWidth: 0 };
+            
+            // 地面の中心Y座標を画面下に配置
             const adjustedWallY = height + wallThickness / 2 - 1; 
 
             const walls = [
-                // 下の壁 (地面の代わり) - 調整済み
+                // 下の壁 (地面の代わり) - 見えないように設定
                 Bodies.rectangle(width / 2, adjustedWallY, width, wallThickness, { 
                     isStatic: true, 
                     label: 'bottomWall', 
-                    render: wallRender 
+                    render: invisibleGroundRender 
                 }),
                 // 左の壁
                 Bodies.rectangle(-wallThickness / 2, height / 2, wallThickness, height * 2, { 
