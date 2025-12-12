@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D 跳ねる球体シミュレーション</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: "Inter", sans-serif;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        canvas {
+            display: block;
+            background-color: #000;
+            /* キャンバスが画面全体を覆うように調整 */
+            width: 100vw;
+            height: 100vh;
+            border-radius: 0; /* 角の丸みをなくす */
+            box-shadow: none; /* 影をなくす */
+        }
+        /* #info div は削除されました */
+    </style>
+</head>
+<body>
+    <!-- #info div は削除しました -->
+    <canvas id="bouncingCanvas"></canvas>
+
+    <script type="module">
+        const canvas = document.getElementById('bouncingCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // キャンバスのサイズをウィンドウ全体に設定
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // 物理定数
+        const gravity = 0.3; // 重力
+        const friction = 0.998; // 摩擦 (空気抵抗など) - さらに減少させてエネルギー損失を最小限に
+        const groundFriction = 0.9; // 地面との摩擦 - 減少させてより長く跳ねるように
+        const velocityThreshold = 0.5; // 静止とみなす速度のしきい値
+        const impulseStrength = 25; // 再活性化時の力の強さ - より強く跳ね上げる
+        const randomJumpChance = 0.03; // 静止した球体がランダムにジャンプする確率 (毎フレーム) - 頻度を調整
+        const clickImpulseStrength = 40; // クリック時の跳ね返りの強さ - より強く跳ね上げる
+
+        // 黄金比
+        const phi = (1 + Math.sqrt(5)) / 2; // 黄金比 (約 1.618)
+
+        // シックな色のパレット (今回は使用しませんが、定義は残しておきます)
+        const chicColors = [
+            '#607D8B', // Blue Grey
+            '#795548', // Brown
+            '#4A6B4E', // Darker Green
+            '#757575', // Medium Grey
+            '#5D4037', // Darker Brown/Taupe
+            '#546E7A', // Darker Blue Grey
+            '#B0BEC5'  // Lighter Blue Grey
+        ];
+
+        // 球体オブジェクトの配列
+        const spheres = [];
+        // プラットフォームオブジェクトの配列
+        const platforms = [];
+
+        // Sphere クラスの定義
+        class Sphere {
+            constructor(x, y, radius, mass, restitution) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.mass = mass;
+                this.restitution = restitution; // 反発係数 (0.0 から 1.0)
+                this.color = 'white'; // 色を白に固定
+                this.vx = (Math.random() - 0.5) * 7; // 初期X方向速度を少し上げる
+                this.vy = (Math.random() - 0.5) * 7; // 初期Y方向速度を少し上げる
+            }
+
+            // 球体を描画するメソッド
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.closePath();
+            }
+
+            // 球体の状態を更新するメソッド
+            update() {
+                // 重力を適用
+                this.vy += gravity;
+
+                // 速度を更新
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // 壁との衝突判定
+                // 右の壁
+                if (this.x + this.radius > canvas.width) {
+                    this.x = canvas.width - this.radius;
+                    this.vx *= -this.restitution; // 反発
+                }
+                // 左の壁
+                if (this.x - this.radius < 0) {
+                    this.x = this.radius;
+                    this.vx *= -this.restitution; // 反発
+                }
+
+                // 地面との衝突判定 (キャンバスの底)
+                if (this.y + this.radius > canvas.height) {
+                    this.y = canvas.height - this.radius;
+                    this.vy *= -this.restitution; // 反発
+                    this.vx *= groundFriction; // 地面との摩擦
+                    // 速度が非常に小さい場合は停止とみなす
+                    if (Math.abs(this.vy) < 0.1) this.vy = 0;
+                    if (Math.abs(this.vx) < 0.1) this.vx = 0;
+                }
+                // 天井との衝突判定
+                if (this.y - this.radius < 0) {
+                    this.y = this.radius;
+                    this.vy *= -this.restitution; // 反発
+                }
+
+                // プラットフォームとの衝突判定
+                platforms.forEach(platform => {
+                    // 球体の次の位置がプラットフォームのY座標を超えるかどうかをチェック
+                    if (this.y + this.radius > platform.y &&
+                        this.y + this.radius - this.vy <= platform.y && // 前のフレームではプラットフォームの上にいなかった
+                        this.x + this.radius > platform.x &&
+                        this.x - this.radius < platform.x + platform.width) {
+                        
+                        this.y = platform.y - this.radius; // プラットフォームの上に配置
+                        this.vy *= -this.restitution; // 反発
+                        this.vx *= groundFriction; // プラットフォームとの摩擦
+                        if (Math.abs(this.vy) < 0.1) this.vy = 0;
+                        if (Math.abs(this.vx) < 0.1) this.vx = 0;
+                    }
+                });
+
+
+                // 全体的な摩擦 (空気抵抗)
+                this.vx *= friction;
+                this.vy *= friction;
+
+                // 静止した球体の再活性化
+                if (Math.abs(this.vx) < velocityThreshold && Math.abs(this.vy) < velocityThreshold) {
+                    if (Math.random() < randomJumpChance) {
+                        this.vy = -impulseStrength * (0.5 + Math.random()); // 上向きにランダムな力を加える
+                        this.vx = (Math.random() - 0.5) * impulseStrength * 0.5; // 横方向にも少し力を加える
+                    }
+                }
+            }
+        }
+
+        // Platform クラスの定義
+        class Platform {
+            constructor(x, y, width, height, color = 'rgba(0, 0, 0, 0)') { // 地面の色を完全に透明に変更
+                this.x = x;
+                this.y = y;
+                this.width = width;
+                this.height = height;
+                this.color = color;
+            }
+
+            // プラットフォームを描画するメソッド (完全に透明なので実質何も描画しない)
+            draw() {
+                // ctx.fillStyle = this.color; // 描画しない
+                // ctx.fillRect(this.x, this.y, this.width, this.height); // 描画しない
+            }
+        }
+
+        // シミュレーションの初期化
+        function initSimulation() {
+            const numberOfSpheres = 7; // 球体の数を7に維持
+            const minRadius = 80; // 最小半径を80に維持
+            const maxRadius = 150; // 最大半径を150に維持
+
+            // 球体の初期配置範囲を黄金比に基づいて設定
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const initialSpawnWidth = canvas.width / phi; // 黄金比で幅を決定
+            const initialSpawnHeight = canvas.height / phi; // 黄金比で高さを決定
+            const spawnXStart = centerX - initialSpawnWidth / 2;
+            const spawnYStart = centerY - initialSpawnHeight / 2;
+
+            for (let i = 0; i < numberOfSpheres; i++) {
+                const radius = minRadius + Math.random() * (maxRadius - minRadius);
+                const mass = radius * 0.1; // 半径に比例して質量を設定
+                // 反発係数をより高く、狭い範囲に設定して、より一貫した跳ね返りを実現
+                const restitution = 0.95 + Math.random() * 0.04; // 0.95から0.99の間に設定
+
+                // 黄金比で定義された範囲内にランダムに配置
+                const x = spawnXStart + Math.random() * initialSpawnWidth;
+                const y = spawnYStart + Math.random() * initialSpawnHeight;
+
+                spheres.push(new Sphere(x, y, radius, mass, restitution));
+            }
+
+            // プラットフォームの追加
+            const platformHeight = 20;
+            const numPlatforms = 4; // プラットフォームの数を維持
+
+            // プラットフォームのY座標を黄金比に基づいて設定
+            const goldenRatioYPositions = [
+                canvas.height * (1 / (phi * phi)), // 約 0.382 * height
+                canvas.height * (1 / phi),         // 約 0.618 * height
+                canvas.height * (1 - 1 / phi),     // 約 0.382 * height (上から)
+                canvas.height * (1 - 1 / (phi * phi)) // 約 0.618 * height (上から)
+            ];
+            // 重複を避けるため、ユニークな位置を選び、ソート
+            const uniqueYPositions = [...new Set(goldenRatioYPositions)].sort((a, b) => a - b);
+
+            for (let i = 0; i < numPlatforms; i++) {
+                // プラットフォームの幅をさらに狭く調整 (例: 2%から8%の範囲)
+                const platformWidth = canvas.width * (0.02 + Math.random() * 0.06); 
+                const platformX = Math.random() * (canvas.width - platformWidth); // X位置をランダムに維持
+                
+                // 黄金比に基づくY位置を割り当てる (利用可能な位置が足りない場合はランダムに)
+                const platformY = uniqueYPositions[i % uniqueYPositions.length] || (canvas.height * (0.2 + i * (0.6 / numPlatforms)) + (Math.random() - 0.5) * 50);
+                
+                platforms.push(new Platform(platformX, platformY, platformWidth, platformHeight));
+            }
+        }
+
+        // アニメーションループ
+        function animate() {
+            // 背景を黒の微妙なグラデーションで塗りつぶし、軌跡効果を作成
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            // 上部をより透明でわずかに明るい黒
+            gradient.addColorStop(0, 'rgba(0, 0, 0, 0.005)');
+            // 下部をより不透明で深い黒
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.015)'); 
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 各プラットフォームを描画 (ただし、Platformクラスのdrawメソッドは透明なので見えない)
+            platforms.forEach(platform => {
+                platform.draw();
+            });
+
+            // 各球体を更新して描画
+            for (let i = 0; i < spheres.length; i++) {
+                spheres[i].update();
+                spheres[i].draw();
+            }
+
+            requestAnimationFrame(animate); // 次のフレームを要求
+        }
+
+        // ウィンドウのリサイズイベントハンドラ
+        function onWindowResize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            spheres.length = 0; // 球体をクリア
+            platforms.length = 0; // プラットフォームをクリア
+            initSimulation(); // シミュレーションを再初期化
+        }
+
+        // 初期化とアニメーションの開始
+        window.onload = function () {
+            initSimulation();
+            animate();
+        };
+
+        // クリックイベントリスナーを追加
+        canvas.addEventListener('click', () => {
+            spheres.forEach(sphere => {
+                // 各球体にランダムな上向きの力と横方向の力を加える
+                sphere.vy = -clickImpulseStrength * (0.5 + Math.random());
+                sphere.vx = (Math.random() - 0.5) * clickImpulseStrength * 0.5;
+            });
+        });
+
+        window.addEventListener('resize', onWindowResize);
+    </script>
+</body>
+</html>
