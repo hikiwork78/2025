@@ -27,14 +27,18 @@
             overflow: hidden;
             font-family: 'Cutive Mono', monospace;
             cursor: grab; /* ドラッグ操作を促すカーソル */
+            /* 状態表示用のスタイルは削除 */
+            position: relative;
         }
         canvas {
             display: block;
         }
+        /* #info-overlay のスタイルは削除 */
     </style>
 </head>
 <body>
     <div id="container"></div>
+    <!-- #info-overlay 要素とその内容は削除されました -->
 
     <script>
         // --- Three.js グローバル変数 ---
@@ -51,12 +55,12 @@
         // 0: Normal Scroll, 1: Fast Scroll, 2: Subtle Scroll, 3: Form Swirl Shape
         let animationState = 0; 
         let globalSpeedFactor = 1.0; 
+        // 状態名リストは情報オーバーレイ削除に伴い不要だが、コードのロジック維持のため残す
+        const stateNames = ["Normal Scroll", "Fast Scroll", "Subtle Scroll", "Swirl Cluster"];
 
         // カラーパレット (背景: 白, ライン/文字: 黒)
         const lineColor = 0x000000; // ラインおよび文字を黒に変更
         
-        // Sphere GeometryとMaterialは文字描画のため削除
-
 
         /**
          * 文字を描画したテクスチャを持つ THREE.Sprite を作成する
@@ -143,8 +147,6 @@
             // 要素の基本サイズを決定
             charSize = Math.max(1.0, Math.min(3.0, D_H / 200)); 
             
-            // 球体のジオメトリとマテリアルは不要
-            
             initializeCharacters();
         }
 
@@ -168,7 +170,7 @@
                 color: lineColor, 
                 linewidth: 1, 
                 transparent: true, // 透明度を有効化
-                opacity: 0.6 // 透明度を下げて、線を視覚的に細く見せる
+                opacity: 0.15 // 透明度をさらに下げて、線を細く（0.3 -> 0.15）
             });
 
             for (let i = 0; i < numStreams; i++) {
@@ -218,6 +220,7 @@
                 });
 
                 // Line Geometryを作成し、ストリームに接続
+                // パフォーマンスを考慮し、Line Geometryはストリーム内の文字オブジェクトから直接頂点情報を取得して更新する
                 const lineGeometry = new THREE.BufferGeometry().setFromPoints(currentSet.map(c => c.pos));
                 const line = new THREE.Line(lineGeometry, lineMaterial);
                 streamGroup.add(line);
@@ -350,12 +353,20 @@
         let isPointerDown = false;
         let downTime = 0;
 
+        // 状態表示を更新するヘルパー関数 (オーバーレイ削除に伴い処理を削除)
+        function updateStatusDisplay() {
+            // 現在は何も行いません
+        }
+
         /** ポインターダウンイベント (クリックまたはドラッグ開始) */
         document.getElementById('container').addEventListener('pointerdown', (e) => {
             isPointerDown = true;
             downTime = Date.now();
             // カーソルを「掴んでいる」状態に変更
             document.body.style.cursor = 'grabbing';
+            // クリック判定のためのカメラ状態を保存
+            controls.oldPolarAngle = controls.getPolarAngle();
+            controls.oldAzimuthalAngle = controls.getAzimuthalAngle();
         });
 
         /** ポインターアップイベント (ドラッグ終了またはクリック) */
@@ -368,17 +379,20 @@
             const duration = Date.now() - downTime;
             
             // カメラが動いたかどうかを判定 (角度の変化をチェック)
-            const moved = controls.getPolarAngle() !== controls.oldPolarAngle || controls.getAzimuthalAngle() !== controls.oldAzimuthalAngle;
+            const moved = (Math.abs(controls.getPolarAngle() - controls.oldPolarAngle) > 0.001) || 
+                          (Math.abs(controls.getAzimuthalAngle() - controls.oldAzimuthalAngle) > 0.001);
 
             if (duration < 300 && !moved) { // 300ms以下の短い操作で回転等がなければクリック
                 // クリックとして処理: 状態をトグル
                 animationState = (animationState + 1) % 4; 
+                // updateStatusDisplay(); // 状態表示を更新する処理を削除
 
                 // Shape Modeからスクロール Modeに戻る際、要素の位置をリセット
                 if (animationState !== 3) {
                      characterSets.forEach(set => {
                         set.forEach(char => {
                             // Z位置を遠方にリセットし、すぐにスクロールを開始させる
+                            const resetZ = -300; 
                             char.pos.z = resetZ;
                             char.pos.x = char.initialPos.x;
                             char.pos.y = char.initialPos.y;
@@ -386,11 +400,6 @@
                     });
                 }
             }
-            // 次のフレームのために角度を保存
-            controls.oldPolarAngle = controls.getPolarAngle();
-            controls.oldAzimuthalAngle = controls.getAzimuthalAngle();
-            // lastPosition は Three.jsのカメラ移動チェックに使われる可能性があるため、更新を継続
-            controls.lastPosition.copy(camera.position); 
         });
 
         /** ウィンドウリサイズハンドラ */
@@ -404,8 +413,11 @@
         });
         
         // --- 初回起動 ---
-        setupThreeJs();
-        animate(); 
+        window.onload = function() {
+            setupThreeJs();
+            updateStatusDisplay(); // 実行はされるが処理は空
+            animate(); 
+        }
 
     </script>
 </body>
