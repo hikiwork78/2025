@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Xmas Stream</title>
-    <!-- Tailwind CSSの読み込み (使用しないが念のため残す) -->
+    <!-- Tailwind CSSの読み込み (使用しないが、以前の名残として残しておく) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Font: Cutive Mono (文字描画に使用) -->
     <link href="https://fonts.googleapis.com/css2?family=Cutive+Mono&display=swap" rel="stylesheet">
@@ -27,18 +27,50 @@
             overflow: hidden;
             font-family: 'Cutive Mono', monospace;
             cursor: grab; /* ドラッグ操作を促すカーソル */
-            /* 状態表示用のスタイルは削除 */
             position: relative;
         }
         canvas {
             display: block;
         }
-        /* #info-overlay のスタイルは削除 */
+        /* UIオーバーレイを中央下部に配置 (今回は削除されるため不要だが、念のためコメントアウト) */
+        /*
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            padding: 10px 20px;
+            background-color: rgba(255, 255, 255, 0.8);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        */
     </style>
 </head>
 <body>
+    <!-- 3Dコンテンツのコンテナ -->
     <div id="container"></div>
-    <!-- #info-overlay 要素とその内容は削除されました -->
+
+    <!-- UIコントロール: 削除 -->
+    <!--
+    <div id="controls" class="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-4">
+        <input 
+            type="text" 
+            id="text-input" 
+            placeholder="MERRY CHRISTMAS"
+            value="MERRY CHRISTMAS"
+            maxlength="20"
+            class="p-2 border border-gray-300 rounded-lg text-black bg-white focus:ring-2 focus:ring-gray-500 w-64 text-center font-mono text-sm"
+        >
+        <button 
+            id="apply-text-button"
+            class="px-4 py-2 bg-black text-white rounded-lg shadow-md hover:bg-gray-800 transition duration-150 font-bold text-sm"
+        >
+            テキストを更新
+        </button>
+    </div>
+    -->
 
     <script>
         // --- Three.js グローバル変数 ---
@@ -59,8 +91,8 @@
         // 0: Normal Scroll, 1: Fast Scroll, 2: Subtle Scroll, 3: Form Swirl Shape
         let animationState = 0; 
         let globalSpeedFactor = 1.0; 
-        // 状態名リストは情報オーバーレイ削除に伴い不要だが、コードのロジック維持のため残す
-        const stateNames = ["Normal Scroll", "Fast Scroll", "Subtle Scroll", "Swirl Cluster"];
+        // 状態名の配列はUIで使用されなくなったため、参照されません
+        // const stateNames = ["Normal Scroll", "Fast Scroll", "Subtle Scroll", "Swirl Cluster"];
 
         // カラーパレット (背景: 白, ライン/文字: 黒)
         const lineColor = 0x000000; // ラインおよび文字を黒に変更
@@ -102,7 +134,7 @@
             });
 
             const sprite = new THREE.Sprite(material);
-            // スプライトのサイズを設定 (球体より目立たせるため少し大きく)
+            // スプライトのサイズを設定
             sprite.scale.set(size * 2, size * 2, 1); 
             return sprite;
         }
@@ -128,6 +160,7 @@
             renderer.setClearColor(0xFFFFFF); // レンダラーの背景色を白に変更
             
             const container = document.getElementById('container');
+            // コンテナの内容をクリア
             while (container.firstChild) {
                 container.removeChild(container.firstChild);
             }
@@ -148,7 +181,7 @@
             globalStreamGroup = new THREE.Group();
             scene.add(globalStreamGroup);
             
-            // 要素の基本サイズを決定
+            // 要素の基本サイズを決定 (画面の高さに基づいて調整)
             charSize = Math.max(1.0, Math.min(3.0, D_H / 200)); 
             
             initializeCharacters();
@@ -162,8 +195,9 @@
             globalStreamGroup.clear();
             characterSets = [];
 
-            // テキストの長さに依存せず、ストリームの数は一定
-            const charLength = currentText.length;
+            // 描画する文字を配列に変換
+            const charArray = currentText.split('');
+            const charLength = charArray.length;
             const numStreams = 10; 
             const depthRange = 500; 
             const initialXSpread = 200; 
@@ -173,28 +207,27 @@
             const lineMaterial = new THREE.LineBasicMaterial({ 
                 color: lineColor, 
                 linewidth: 1, 
-                transparent: true, // 透明度を有効化
-                opacity: 0.15 // 透明度をさらに下げて、線を細く（0.3 -> 0.15）
+                transparent: true, 
+                opacity: 0.15 
             });
 
             for (let i = 0; i < numStreams; i++) {
                 const streamGroup = new THREE.Group();
                 const currentSet = [];
                 
-                // ストリーム全体のZ位置をランダムに配置
                 const initialZOffset = Math.random() * depthRange - depthRange / 2;
-                // ストリーム全体のX位置をランダムに配置
                 const initialXOffset = Math.random() * initialXSpread - initialXSpread / 2;
 
                 // 文字の生成と配置
-                currentText.split('').forEach((char, index) => {
-                    // Y座標はストリーム内でのオフセット
-                    const initialY = (index - charLength / 2) * charSize * 2; 
+                charArray.forEach((char, index) => {
+                    // MERRY CHRISTMASが上から下に並ぶようにY座標を逆転させる
+                    // index 0 ('M') が最も大きなY座標 (上) になるようにする
+                    const initialY = (charLength / 2 - index) * charSize * 2; 
 
                     // ベース速度 (0.05～0.25)
                     const baseSpeed = 0.05 + Math.random() * 0.2; 
                     
-                    // 振幅 (微細な動き)
+                    // 振幅と周波数 (微細な動き)
                     const amplitude = Math.random() * 0.5 + 0.2; 
                     const frequency = 0.01 + Math.random() * 0.02; 
                     const movementType = Math.floor(Math.random() * 3); 
@@ -213,7 +246,7 @@
                     };
 
                     // *** THREE.Sprite を作成するロジック ***
-                    const charToDisplay = currentText[index % currentText.length]; 
+                    const charToDisplay = char; // 実際に表示する文字
                     const sprite = createSprite(charToDisplay, charSize, lineColor);
                     sprite.position.copy(charObj.pos);
                     streamGroup.add(sprite);
@@ -224,7 +257,6 @@
                 });
 
                 // Line Geometryを作成し、ストリームに接続
-                // パフォーマンスを考慮し、Line Geometryはストリーム内の文字オブジェクトから直接頂点情報を取得して更新する
                 const lineGeometry = new THREE.BufferGeometry().setFromPoints(currentSet.map(c => c.pos));
                 const line = new THREE.Line(lineGeometry, lineMaterial);
                 streamGroup.add(line);
@@ -244,15 +276,15 @@
             // アニメーションの基本速度を1秒あたりに換算するための係数
             const speedScale = deltaTime / FIXED_FPS_FACTOR; 
 
-            const attractionFactor = 0.005; // 中央への吸引力 (3D向けに調整)
-            const swirlFactor = 0.01;      // 渦を巻く成分 (3D向けに調整)
-            const resetZ = -300;           // スクロール時のZ軸リセット位置 (遠方)
+            const attractionFactor = 0.005; // 中央への吸引力 
+            const swirlFactor = 0.01;      // 渦を巻く成分
+            const resetZ = -300;           // スクロール時のZ軸リセット位置
 
             // アニメーション状態に応じてグローバル速度係数を設定
             switch (animationState) {
-                case 0: globalSpeedFactor = 1.0; break; // Normal
-                case 1: globalSpeedFactor = 4.0; break; // Fast
-                case 2: globalSpeedFactor = 0.2; break; // Subtle
+                case 0: globalSpeedFactor = 1.0; break; // Normal Scroll
+                case 1: globalSpeedFactor = 4.0; break; // Fast Scroll
+                case 2: globalSpeedFactor = 0.2; break; // Subtle Scroll
                 case 3: globalSpeedFactor = 0.0; break; // Shape Mode (スクロール停止)
             }
 
@@ -283,24 +315,23 @@
                     if (animationState === 3) {
                         // --- 状態 3: 形形成モード (Swirl Cluster) ---
                         
-                        // 1. 中央 (0, 0, 0) へのベクトル計算
                         const dx = -char.pos.x;
                         const dy = -char.pos.y;
                         const dz = -char.pos.z;
 
-                        // 2. 吸引力の適用 (デルタタイム適用なし: 座標計算として固定値を使用)
+                        // 吸引力の適用
                         char.pos.x += dx * attractionFactor;
                         char.pos.y += dy * attractionFactor;
                         char.pos.z += dz * attractionFactor;
 
-                        // 3. 渦を巻く回転成分の適用 (デルタタイム適用なし: 座標計算として固定値を使用)
+                        // 渦を巻く回転成分の適用
                         const rotationX = -dy * swirlFactor; 
                         const rotationY = dx * swirlFactor;
 
                         char.pos.x += rotationX;
                         char.pos.y += rotationY;
                         
-                        // 4. 微細振動を少し加える
+                        // 微細振動を少し加える
                         char.pos.y += subtleY * 0.5;
 
                     } else {
@@ -308,13 +339,13 @@
                         
                         // Z方向の移動量 (デルタタイム適用: 速度 * スケール)
                         const speed = char.baseVx * globalSpeedFactor;
-                        char.pos.z += speed * speedScale; // ここを修正
+                        char.pos.z += speed * speedScale; 
 
                         // Y位置はベース座標 + 振動成分
                         char.pos.y = char.baseY + subtleY;
                         
                         // X位置にわずかなランダムノイズを加える (デルタタイム適用)
-                        char.pos.x += (Math.random() - 0.5) * 0.05 * globalSpeedFactor * speedScale; // ここを修正
+                        char.pos.x += (Math.random() - 0.5) * 0.05 * globalSpeedFactor * speedScale; 
 
                         // 画面の手前 (Z軸の正の方向) を超えたら初期位置に戻す (ループ)
                         if (char.pos.z > 300) {
@@ -364,10 +395,13 @@
         let isPointerDown = false;
         let downTime = 0;
 
-        // 状態表示を更新するヘルパー関数 (オーバーレイ削除に伴い処理を削除)
-        function updateStatusDisplay() {
-            // 現在は何も行いません
+        /*
+        // UIの入力内容を反映する関数 (削除)
+        function applyNewText() {
+            // ... (削除されたロジック)
         }
+        */
+
 
         /** ポインターダウンイベント (クリックまたはドラッグ開始) */
         document.getElementById('container').addEventListener('pointerdown', (e) => {
@@ -396,12 +430,11 @@
             if (duration < 300 && !moved) { // 300ms以下の短い操作で回転等がなければクリック
                 // クリックとして処理: 状態をトグル
                 animationState = (animationState + 1) % 4; 
-                // updateStatusDisplay(); // 状態表示を更新する処理を削除
 
                 // Shape Modeからスクロール Modeに戻る際、要素の位置をリセット
                 if (animationState !== 3) {
                      characterSets.forEach(set => {
-                        set.forEach(char => {
+                         set.forEach(char => {
                             // Z位置を遠方にリセットし、すぐにスクロールを開始させる
                             const resetZ = -300; 
                             char.pos.z = resetZ;
@@ -413,6 +446,16 @@
             }
         });
 
+        // UIボタンにイベントリスナーを追加 (削除)
+        // document.getElementById('apply-text-button').addEventListener('click', applyNewText);
+        // Enterキーで更新できるようにinputにもリスナーを追加 (削除)
+        // document.getElementById('text-input').addEventListener('keypress', (e) => {
+        //     if (e.key === 'Enter') {
+        //         applyNewText();
+        //     }
+        // });
+
+
         /** ウィンドウリサイズハンドラ */
         window.addEventListener('resize', () => {
             D_W = window.innerWidth;
@@ -421,12 +464,16 @@
             camera.aspect = D_W / D_H;
             camera.updateProjectionMatrix();
             renderer.setSize(D_W, D_H);
+            
+            // 画面サイズ変更に合わせて文字サイズを再計算
+            charSize = Math.max(1.0, Math.min(3.0, D_H / 200)); 
+            // 変更された文字サイズでシーンを再構築
+            initializeCharacters(); 
         });
         
         // --- 初回起動 ---
         window.onload = function() {
             setupThreeJs();
-            updateStatusDisplay(); // 実行はされるが処理は空
             animate(0); // 最初の呼び出しではtime=0を渡す
         }
 
