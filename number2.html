@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Subpixel Animation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #000;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            flex-direction: column;
+            margin: 0;
+        }
+
+        .pixel-grid {
+            display: grid;
+            grid-template-rows: repeat(8, 1fr);
+            grid-template-columns: repeat(8, 1fr);
+            gap: 2px;
+            padding: 20px;
+            background-color: #000;
+        }
+
+        .pixel {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #000;
+        }
+
+        .subpixel-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        .subpixel {
+            width: 33.33%;
+            height: 100%;
+        }
+
+        .red { background-color: #ff0000; }
+        .green { background-color: #00ff00; }
+        .blue { background-color: #0000ff; }
+        
+        /* すべてのUI要素を非表示にする */
+        .ui-hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="pixel-grid"></div>
+
+    <div class="ui-hidden">
+        <input type="text" id="inputText" value="Hello">
+        <input type="range" id="speedRange" min="10" max="200" value="50">
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const grid = document.querySelector('.pixel-grid');
+            const inputText = document.getElementById('inputText');
+            const speedRange = document.getElementById('speedRange');
+
+            // 0から9までのピクセルデータ
+            const characters = {
+                '0': [
+                    0,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '1': [
+                    0,0,0,1,0,0,0,0,
+                    0,0,1,1,0,0,0,0,
+                    0,0,0,1,0,0,0,0,
+                    0,0,0,1,0,0,0,0,
+                    0,0,0,1,0,0,0,0,
+                    0,0,0,1,0,0,0,0,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '2': [
+                    0,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,1,
+                    0,0,0,0,0,0,0,1,
+                    0,0,0,0,0,0,1,0,
+                    0,0,0,0,0,1,0,0,
+                    0,0,0,0,1,0,0,0,
+                    1,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '3': [
+                    0,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,1,
+                    0,0,0,0,0,0,0,1,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '4': [
+                    0,0,0,0,1,0,0,0,
+                    0,0,0,1,1,0,0,0,
+                    0,0,1,0,1,0,0,0,
+                    0,1,0,0,1,0,0,0,
+                    1,1,1,1,1,1,1,0,
+                    0,0,0,0,1,0,0,0,
+                    0,0,0,0,1,0,0,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '5': [
+                    0,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,0,
+                    1,0,0,0,0,0,0,0,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '6': [
+                    0,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,0,
+                    1,0,0,0,0,0,0,0,
+                    1,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '7': [
+                    1,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,1,
+                    0,0,0,0,0,0,1,0,
+                    0,0,0,0,0,1,0,0,
+                    0,0,0,0,1,0,0,0,
+                    0,0,0,1,0,0,0,0,
+                    0,0,0,1,0,0,0,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '8': [
+                    0,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    0,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,0,
+                ],
+                '9': [
+                    0,1,1,1,1,1,1,0,
+                    1,0,0,0,0,0,0,1,
+                    1,0,0,0,0,0,0,1,
+                    0,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,1,
+                    0,0,0,0,0,0,0,1,
+                    1,1,1,1,1,1,1,0,
+                    0,0,0,0,0,0,0,0,
+                ]
+            };
+            const numberSequence = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+            // サブピクセルの色を「赤、緑、青」の順に変更
+            const colors = ['red', 'green', 'blue'];
+            const cols = 8;
+            const rows = 8;
+            let animationInterval;
+            let offset = 0;
+            let numberIndex = 0;
+
+            // グリッドを生成
+            function createGrid() {
+                grid.innerHTML = '';
+                for (let i = 0; i < cols * rows; i++) {
+                    const pixel = document.createElement('div');
+                    pixel.className = 'pixel';
+                    
+                    const subpixelContainer = document.createElement('div');
+                    subpixelContainer.className = 'subpixel-container';
+                    
+                    colors.forEach(color => {
+                        const subpixel = document.createElement('div');
+                        subpixel.className = `subpixel ${color}`;
+                        subpixelContainer.appendChild(subpixel);
+                    });
+                    
+                    pixel.appendChild(subpixelContainer);
+                    grid.appendChild(pixel);
+                }
+            }
+
+            // アニメーションを更新
+            function updateAnimation() {
+                const currentNumber = numberSequence[numberIndex];
+                const charData = characters[currentNumber];
+                
+                const pixels = grid.querySelectorAll('.pixel');
+
+                pixels.forEach((pixel, index) => {
+                    const subpixels = pixel.querySelectorAll('.subpixel');
+                    
+                    // サブピクセルのシフト
+                    subpixels.forEach((sp, spIndex) => {
+                        const newColorIndex = (spIndex + offset) % colors.length;
+                        sp.style.backgroundColor = colors[newColorIndex];
+                    });
+                    
+                    // 数字の表示
+                    if (charData[index]) {
+                        subpixels.forEach(sp => {
+                            sp.style.opacity = '1';
+                        });
+                    } else {
+                        subpixels.forEach(sp => {
+                            sp.style.opacity = '0.1';
+                        });
+                    }
+                });
+
+                offset = (offset + 1) % colors.length;
+                
+                // 1秒ごとに次の数字に進む
+                if (offset === 0) {
+                    numberIndex = (numberIndex + 1) % numberSequence.length;
+                }
+            }
+
+            // アニメーションを開始
+            function startAnimation() {
+                clearInterval(animationInterval);
+                const speed = 200; // 固定速度を200msに変更
+                animationInterval = setInterval(updateAnimation, speed);
+            }
+
+            createGrid();
+            startAnimation();
+        });
+    </script>
+
+</body>
+</html>
