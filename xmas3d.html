@@ -50,6 +50,10 @@
         let characterSets = []; 
         let currentText = "MERRY CHRISTMAS"; // 描画するテキスト
         let globalStreamGroup; // すべてのストリームを含むグループ
+        
+        // --- デルタタイム関連変数 ---
+        let lastTime = 0;
+        const FIXED_FPS_FACTOR = 1000 / 60; // 60FPS時のフレーム時間 (約16.67ms)
 
         // --- アニメーション状態 ---
         // 0: Normal Scroll, 1: Fast Scroll, 2: Subtle Scroll, 3: Form Swirl Shape
@@ -187,9 +191,7 @@
                     // Y座標はストリーム内でのオフセット
                     const initialY = (index - charLength / 2) * charSize * 2; 
 
-                    // ベース速度
-                    // 以前: 0.1 + Math.random() * 0.4 (0.1～0.5)
-                    // 変更後: 0.05 + Math.random() * 0.2 (0.05～0.25) - さらに減速
+                    // ベース速度 (0.05～0.25)
                     const baseSpeed = 0.05 + Math.random() * 0.2; 
                     
                     // 振幅 (微細な動き)
@@ -236,8 +238,12 @@
 
         /**
          * 全ての要素セット内の要素を更新し、移動させます。
+         * @param {number} deltaTime - 前フレームからの経過時間 (ms)
          */
-        function updateCharacters() {
+        function updateCharacters(deltaTime) {
+            // アニメーションの基本速度を1秒あたりに換算するための係数
+            const speedScale = deltaTime / FIXED_FPS_FACTOR; 
+
             const attractionFactor = 0.005; // 中央への吸引力 (3D向けに調整)
             const swirlFactor = 0.01;      // 渦を巻く成分 (3D向けに調整)
             const resetZ = -300;           // スクロール時のZ軸リセット位置 (遠方)
@@ -255,7 +261,8 @@
                 const positions = set.lineGeometry.attributes.position.array;
                 
                 set.forEach((char, index) => {
-                    char.time += char.frequency * (animationState === 3 ? 0.1 : globalSpeedFactor);
+                    // 時間の更新もデルタタイムで制御し、振動の速度も一定に保つ
+                    char.time += char.frequency * (animationState === 3 ? 0.1 : globalSpeedFactor) * speedScale;
 
                     // 微細振動の振幅乗数
                     let amplitudeMultiplier = 1.0;
@@ -281,12 +288,12 @@
                         const dy = -char.pos.y;
                         const dz = -char.pos.z;
 
-                        // 2. 吸引力の適用
+                        // 2. 吸引力の適用 (デルタタイム適用なし: 座標計算として固定値を使用)
                         char.pos.x += dx * attractionFactor;
                         char.pos.y += dy * attractionFactor;
                         char.pos.z += dz * attractionFactor;
 
-                        // 3. 渦を巻く回転成分の適用 (X-Y平面で回転)
+                        // 3. 渦を巻く回転成分の適用 (デルタタイム適用なし: 座標計算として固定値を使用)
                         const rotationX = -dy * swirlFactor; 
                         const rotationY = dx * swirlFactor;
 
@@ -299,17 +306,15 @@
                     } else {
                         // --- 状態 0, 1, 2: スクロールモード ---
                         
-                        // X方向の速度
+                        // Z方向の移動量 (デルタタイム適用: 速度 * スケール)
                         const speed = char.baseVx * globalSpeedFactor;
-                        
-                        // Z方向の移動（スクロール）
-                        char.pos.z += speed;
-                        
+                        char.pos.z += speed * speedScale; // ここを修正
+
                         // Y位置はベース座標 + 振動成分
                         char.pos.y = char.baseY + subtleY;
                         
-                        // X位置にわずかなランダムノイズを加える
-                        char.pos.x += (Math.random() - 0.5) * 0.05 * globalSpeedFactor;
+                        // X位置にわずかなランダムノイズを加える (デルタタイム適用)
+                        char.pos.x += (Math.random() - 0.5) * 0.05 * globalSpeedFactor * speedScale; // ここを修正
 
                         // 画面の手前 (Z軸の正の方向) を超えたら初期位置に戻す (ループ)
                         if (char.pos.z > 300) {
@@ -337,14 +342,18 @@
         /**
          * メインのアニメーションループ
          */
-        function animate() {
+        function animate(time) {
             requestAnimationFrame(animate);
+
+            // デルタタイムを計算
+            const deltaTime = time - lastTime;
+            lastTime = time;
 
             // カメラ操作を更新
             controls.update(); 
             
             // 全ての要素の位置を更新
-            updateCharacters();
+            updateCharacters(deltaTime); // デルタタイムを渡す
             
             // レンダリング
             renderer.render(scene, camera);
@@ -418,7 +427,7 @@
         window.onload = function() {
             setupThreeJs();
             updateStatusDisplay(); // 実行はされるが処理は空
-            animate(); 
+            animate(0); // 最初の呼び出しではtime=0を渡す
         }
 
     </script>
