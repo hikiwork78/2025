@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Line Art Animation (Continuous Loop & Ordered Shapes)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Interフォントを適用 */
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f0f0f0; /* 背景色 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* スクロールバーを非表示にする */
+        }
+        canvas {
+            border: 2px solid #ccc; /* キャンバスの境界線 */
+            background-color: #fff; /* キャンバスの背景色 */
+            display: block;
+            border-radius: 15px; /* 角を丸くする */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* 影を追加 */
+            max-width: 100vw; /* 画面いっぱいに広げる */
+            max-height: 100vh; /* 画面いっぱいに広げる */
+            width: auto; /* CSSで自動調整させ、JSで属性を設定 */
+            height: auto; /* CSSで自動調整させ、JSで属性を設定 */
+        }
+    </style>
+</head>
+<body>
+    <canvas id="lineArtCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('lineArtCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let points = []; // 動く点を格納する配列
+        let animationFrameId = null; // requestAnimationFrameのIDを保持
+
+        const NUM_DOTS = 800;      // ドットの数
+        const DOT_SIZE = 1.5;      // 各ドットのサイズ
+        const MAX_SPEED = 0.5;     // ドットの最大速度
+
+        const LINE_CONNECTION_DISTANCE = 80; // ドット同士が線を引く最大距離
+        const LINE_THICKNESS = 0.5;         // 線の太さ
+        const LINE_COLOR = 'rgba(0, 0, 0, 0.3)'; // 線の色（半透明）
+
+        // マウスインタラクション用変数
+        let mouseX = -1;
+        let mouseY = -1;
+        let isMouseActive = false; // マウスがキャンバス上にあるか
+
+        // 拡散（反発）フェーズ用変数
+        let isRepelling = false; // 現在反発フェーズか
+        let repelCenterX = 0;    // 反発の中心X座標
+        let repelCenterY = 0;    // 反発の中心Y座標
+        const REPEL_DURATION = 2000; // 反発フェーズの持続時間（ミリ秒）
+        let repelEndTime = 0;      // 反発が終了するタイムスタンプ
+
+        const INITIAL_REPEL_FORCE = 10; // クリック時の初期爆発力
+
+        // 波のアニメーション用変数
+        const WAVE_AMPLITUDE = 20; // 波の振幅（高さ）
+        const WAVE_FREQUENCY = 0.01; // 波の空間的な頻度
+        const WAVE_SPEED = 0.001; // 波が時間とともに動く速度
+
+        // 形状生成のための変数
+        // 指定された順序で形状タイプを定義
+        const shapeTypes = ['triangle', 'heart', 'circle', 'hand', 'wave-line']; 
+        let shapeIndex = 0; // 現在の形状タイプを示すインデックス
+        let currentShapeType = shapeTypes[shapeIndex]; // initDotsで初期化される
+        let currentShapeTargetPoints = []; // 現在の形状の目標点を格納
+
+        // キャンバスのサイズをウィンドウに合わせる
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;   // 画面いっぱいに広げる
+            canvas.height = window.innerHeight; // 画面いっぱいに広げる
+
+            // リサイズ後、点を初期化し直してアニメーションを再開
+            // この時もshapeIndexはリセットせず、現在の形状から再計算するようにする
+            if (points.length === 0) { // 初回ロード時のみinitDotsで点を生成
+                initDots();
+            } else { // リサイズ時は既存の点に新しい目標点を割り当て直す
+                updateShapeTargets(currentShapeType);
+            }
+            if (!animationFrameId) { // アニメーションが停止している場合のみ再開
+                animate(performance.now());
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas(); // 初期ロード時にキャンバスのサイズを設定
+
+        // ドットを描画する関数 (非常に小さな円)
+        function drawDot(x, y, size) {
+            ctx.beginPath();
+            ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+            ctx.fillStyle = 'black'; // ドット自体の色
+            ctx.fill();
+        }
+
+        // 補助関数: 線上に点を追加
+        function addPointsOnLine(pA, pB, count, targetPointsArray) {
+            for (let i = 0; i < count; i++) {
+                const ratio = i / count;
+                targetPointsArray.push({
+                    x: pA.x * (1 - ratio) + pB.x * ratio,
+                    y: pA.y * (1 - ratio) + pB.y * ratio
+                });
+            }
+        }
+
+        // 指定された形状の点を生成する関数
+        function generateShapePoints(type, numPoints, canvasWidth, canvasHeight) {
+            const tempPointsPool = [];
+            const minDim = Math.min(canvasWidth, canvasHeight);
+            const scaleFactor = minDim / 400; // 形状のサイズをキャンバスに合わせるためのスケール
+
+            const shapeCenterX = canvasWidth / 2;
+            const shapeCenterY = canvasHeight / 2;
+
+            // 各形状で、最終的なnumPointsの少なくとも2倍以上の点をプールするように調整
+            const poolMultiplier = 3; 
+
+            if (type === 'hand') {
+                // 手の形状 (簡略化) - 点の生成密度を大幅に向上
+                const handScale = scaleFactor * 1.5;
+
+                // 指のセグメントごとの点数を増やす
+                const fingerSegmentPoints = Math.ceil(numPoints / 100); // 指の点数をNUM_DOTSに応じて動的に調整
+                
+                // 親指
+                const thumbBaseX = shapeCenterX - 80 * handScale;
+                const thumbBaseY = shapeCenterY + 50 * handScale;
+                const thumbKnuckleX = shapeCenterX - 100 * handScale;
+                const thumbKnuckleY = shapeCenterY + 10 * handScale;
+                const thumbTipX = shapeCenterX - 120 * handScale;
+                const thumbTipY = shapeCenterY - 30 * handScale;
+                addPointsOnLine({x: shapeCenterX - 20 * handScale, y: shapeCenterY + 100 * handScale}, {x: thumbBaseX, y: thumbBaseY}, fingerSegmentPoints, tempPointsPool);
+                addPointsOnLine({x: thumbBaseX, y: thumbBaseY}, {x: thumbKnuckleX, y: thumbKnuckleY}, fingerSegmentPoints, tempPointsPool);
+                addPointsOnLine({x: thumbKnuckleX, y: thumbKnuckleY}, {x: thumbTipX, y: thumbTipY}, fingerSegmentPoints, tempPointsPool);
+
+                // 指
+                const fingerWidth = 20 * handScale;
+                const fingerLength = 100 * handScale;
+                const palmTopY = shapeCenterY - 50 * handScale;
+
+                const addFinger = (startX, startY, lengthFactor, rotationAngle = 0) => {
+                    const base = { x: startX, y: startY };
+                    const knuckle1 = {
+                        x: startX + fingerWidth * 0.5 * Math.cos(rotationAngle),
+                        y: startY - fingerLength * 0.3 * lengthFactor + fingerWidth * 0.5 * Math.sin(rotationAngle)
+                    };
+                    const knuckle2 = {
+                        x: startX + fingerWidth * 0.2 * Math.cos(rotationAngle),
+                        y: startY - fingerLength * 0.7 * lengthFactor + fingerWidth * 0.2 * Math.sin(rotationAngle)
+                    };
+                    const tip = {
+                        x: startX,
+                        y: startY - fingerLength * lengthFactor
+                    };
+
+                    addPointsOnLine(base, knuckle1, fingerSegmentPoints, tempPointsPool);
+                    addPointsOnLine(knuckle1, knuckle2, fingerSegmentPoints, tempPointsPool);
+                    addPointsOnLine(knuckle2, tip, fingerSegmentPoints, tempPointsPool);
+                };
+
+                addFinger(shapeCenterX - 50 * handScale, palmTopY, 1.0); // 人差し指
+                addFinger(shapeCenterX - 15 * handScale, palmTopY, 1.1); // 中指
+                addFinger(shapeCenterX + 20 * handScale, palmTopY, 1.05); // 薬指
+                addFinger(shapeCenterX + 55 * handScale, palmTopY, 0.9); // 小指
+
+                // 手のひら (密度を上げて領域を埋める)
+                const palmRectLeft = shapeCenterX - 60 * handScale;
+                const palmRectRight = shapeCenterX + 60 * handScale;
+                const palmRectTop = shapeCenterY - 50 * handScale;
+                const palmRectBottom = shapeCenterY + 100 * handScale;
+
+                // X, Y方向のステップを小さくして、より多くの点を生成
+                const palmStep = 5 * handScale; 
+                for(let y = palmRectTop; y < palmRectBottom; y += palmStep) {
+                    for(let x = palmRectLeft; x < palmRectRight; x += palmStep) {
+                        tempPointsPool.push({x: x, y: y});
+                    }
+                }
+
+            } else if (type === 'circle') {
+                const radius = minDim * 0.4;
+                for (let i = 0; i < numPoints * poolMultiplier; i++) { // プールサイズを調整
+                    const angle = Math.random() * Math.PI * 2;
+                    const r = Math.random() * radius; 
+                    tempPointsPool.push({
+                        x: shapeCenterX + r * Math.cos(angle),
+                        y: shapeCenterY + r * Math.sin(angle)
+                    });
+                }
+            } else if (type === 'triangle') {
+                const side = minDim * 0.6;
+                const h = side * Math.sqrt(3) / 2;
+                const v1 = { x: shapeCenterX, y: shapeCenterY - h * 2 / 3 };
+                const v2 = { x: shapeCenterX - side / 2, y: shapeCenterY + h / 3 };
+                const v3 = { x: shapeCenterX + side / 2, y: shapeCenterY + h / 3 };
+
+                for (let i = 0; i < numPoints * poolMultiplier; i++) { // プールサイズを調整
+                    let s = Math.random();
+                    let t = Math.random();
+                    if (s + t > 1) {
+                        s = 1 - s;
+                        t = 1 - t;
+                    }
+                    tempPointsPool.push({
+                        x: v1.x + s * (v2.x - v1.x) + t * (v3.x - v1.x),
+                        y: v1.y + s * (v2.y - v1.y) + t * (v3.y - v1.y)
+                    });
+                }
+            } else if (type === 'wave-line') {
+                const numWaves = 3; 
+                const waveHeight = minDim * 0.15; 
+                const numPointsOnWave = Math.ceil(numPoints * poolMultiplier / (numWaves * 2)); // 波線上の点数を調整
+
+                for (let i = 0; i < numWaves; i++) { // 各波に対して
+                    const startX = (i / numWaves) * canvasWidth;
+                    const endX = ((i + 1) / numWaves) * canvasWidth;
+                    for (let j = 0; j < numPointsOnWave; j++) {
+                        const x = startX + (j / numPointsOnWave) * (endX - startX);
+                        const y = shapeCenterY + waveHeight * Math.sin((x / canvasWidth) * Math.PI * 2 * numWaves);
+                        const jitterY = (Math.random() - 0.5) * waveHeight * 0.3;
+                        tempPointsPool.push({ x: x, y: y + jitterY });
+                    }
+                }
+            } else if (type === 'heart') { // ハート形状を追加
+                const heartScale = scaleFactor * 1.5;
+                const hRadius = minDim * 0.15; // Radius for top circles
+                const hCenterY = shapeCenterY - hRadius * 0.5; // Adjusted center for top circles
+                const hTipY = shapeCenterY + minDim * 0.3; // Bottom tip of the heart
+
+                // Top left arc part
+                for (let i = 0; i <= 180; i += 5) { // Half circle (bottom half of its outline)
+                    const angle = i * Math.PI / 180;
+                    tempPointsPool.push({
+                        x: shapeCenterX - hRadius + hRadius * Math.cos(angle),
+                        y: hCenterY - hRadius * Math.sin(angle) // Note: -sin for upper part of heart
+                    });
+                }
+                // Top right arc part
+                for (let i = 0; i <= 180; i += 5) { // Half circle
+                    const angle = i * Math.PI / 180;
+                    tempPointsPool.push({
+                        x: shapeCenterX + hRadius + hRadius * Math.cos(angle),
+                        y: hCenterY - hRadius * Math.sin(angle) // Note: -sin for upper part of heart
+                    });
+                }
+                
+                // Points for connecting arcs to tip
+                const leftArcBottom = { x: shapeCenterX - hRadius, y: hCenterY + hRadius };
+                const rightArcBottom = { x: shapeCenterX + hRadius, y: hCenterY + hRadius };
+                const tipPoint = { x: shapeCenterX, y: hTipY };
+
+                addPointsOnLine(leftArcBottom, tipPoint, Math.ceil(numPoints / 20), tempPointsPool);
+                addPointsOnLine(rightArcBottom, tipPoint, Math.ceil(numPoints / 20), tempPointsPool);
+
+                // Fill interior with random points (very rough approximation for filling)
+                const heartMinX = shapeCenterX - hRadius * 1.5;
+                const heartMaxX = shapeCenterX + hRadius * 1.5;
+                const heartMinY = hCenterY - hRadius;
+                const heartMaxY = hTipY;
+
+                for (let i = 0; i < numPoints * poolMultiplier; i++) { // Generate many points
+                    const px = heartMinX + Math.random() * (heartMaxX - heartMinX);
+                    const py = heartMinY + Math.random() * (heartMaxY - heartMinY);
+                    
+                    // A very rough check to keep points somewhat within the heart's bounding area
+                    // This is for filling density, actual shape is formed by attraction
+                    if (py < hCenterY + hRadius * 0.5 || (Math.abs(px - shapeCenterX) < (heartMaxX - heartMinX) * 0.5 * (1 - (py - (hCenterY + hRadius * 0.5)) / (hTipY - (hCenterY + hRadius * 0.5)) )) ) {
+                        tempPointsPool.push({ x: px, y: py });
+                    }
+                }
+            }
+
+
+            // 生成されたプールからnumPoints個をランダムに選んで返す
+            const finalPoints = [];
+            // finalPoints.length が numPoints になるまで、tempPointsPoolからランダムに選ぶ
+            while (finalPoints.length < numPoints && tempPointsPool.length > 0) {
+                finalPoints.push(tempPointsPool[Math.floor(Math.random() * tempPointsPool.length)]);
+            }
+            // もしnumPointsより多くの点がプールにあれば、ランダムにnumPoints個選ぶ
+            if (tempPointsPool.length >= numPoints) { // プールに十分な点がある場合
+                const shuffledPool = [...tempPointsPool]; // プールをシャッフルするためにコピー
+                for (let i = shuffledPool.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [shuffledPool[i], shuffledPool[j]] = [shuffledPool[j], shuffledPool[i]];
+                }
+                return shuffledPool.slice(0, numPoints); // numPoints個だけ選んで返す
+            } else {
+                // プールがnumPointsより少ない場合は、プール内の点を複製して補う
+                const resultPoints = [...tempPointsPool];
+                while(resultPoints.length < numPoints) {
+                    resultPoints.push(tempPointsPool[Math.floor(Math.random() * tempPointsPool.length)]);
+                }
+                return resultPoints;
+            }
+        }
+
+
+        // 複数のドットを初期化する関数
+        function initDots() {
+            // 既存のアニメーションを停止し、点配列をクリア
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null; // IDをリセット
+            }
+            points = [];
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // キャンバスを完全にクリア
+
+            // 次に形成する形状のタイプを順序通りに選択
+            // initDotsは初回ロード時とリサイズ時にのみ呼び出すため、ここでshapeIndexを更新
+            currentShapeType = shapeTypes[shapeIndex]; 
+            shapeIndex = (shapeIndex + 1) % shapeTypes.length; // 次の形状へインデックスを更新
+
+            currentShapeTargetPoints = generateShapePoints(currentShapeType, NUM_DOTS, canvas.width, canvas.height);
+            
+            // 生成された目標点の数がNUM_DOTSと一致するか確認
+            if (currentShapeTargetPoints.length !== NUM_DOTS) {
+                console.error("Error: generateShapePoints did not return exactly NUM_DOTS points. Adjusting count.");
+                // 足りない場合は補填、多い場合は切り詰める
+                while (currentShapeTargetPoints.length < NUM_DOTS) {
+                    currentShapeTargetPoints.push(currentShapeTargetPoints[Math.floor(Math.random() * currentShapeTargetPoints.length)]);
+                }
+                currentShapeTargetPoints.splice(NUM_DOTS); // NUM_DOTS個に切り詰める
+            }
+
+
+            for (let i = 0; i < NUM_DOTS; i++) {
+                // 各ドットに形状内の目標点を割り当てる
+                const targetPoint = currentShapeTargetPoints[i]; 
+                points.push({
+                    x: Math.random() * canvas.width, // 初期位置はランダム
+                    y: Math.random() * canvas.height, // 初期位置はランダム
+                    vx: (Math.random() - 0.5) * 2 * MAX_SPEED * 0.5, // 初期速度は小さめ
+                    vy: (Math.random() - 0.5) * 2 * MAX_SPEED * 0.5, // 初期速度は小さめ
+                    size: DOT_SIZE,
+                    targetX: targetPoint.x, // 形状の目標X座標
+                    targetY: targetPoint.y  // 形状の目標Y座標
+                });
+            }
+            isRepelling = false; // 初期状態は反発しない
+        }
+
+        // アニメーションループ
+        function animate(timestamp) {
+            // 反発フェーズの終了判定
+            if (isRepelling && timestamp > repelEndTime) {
+                isRepelling = false; // 反発フェーズを終了
+                // 反発フェーズ終了後、次の形状を決定
+                // initDots(); // ここが問題でした。完全にリセットするのではなく、目標点を更新します。
+                
+                // 次の形状タイプを計算
+                const nextShapeType = shapeTypes[shapeIndex]; // 次の形状タイプを取得
+                shapeIndex = (shapeIndex + 1) % shapeTypes.length; // 次の形状へインデックスを更新
+
+                const newShapeTargetPoints = generateShapePoints(nextShapeType, NUM_DOTS, canvas.width, canvas.height);
+
+                // 生成された目標点の数がNUM_DOTSと一致するか確認
+                if (newShapeTargetPoints.length !== NUM_DOTS) {
+                    console.error("Error: generateShapePoints did not return exactly NUM_DOTS points for next shape. Adjusting count.");
+                    while (newShapeTargetPoints.length < NUM_DOTS) {
+                        newShapeTargetPoints.push(newShapeTargetPoints[Math.floor(Math.random() * newShapeTargetPoints.length)]);
+                    }
+                    newShapeTargetPoints.splice(NUM_DOTS);
+                }
+
+                // 各既存のパーティクルに新しい目標点を割り当てる
+                points.forEach((p, i) => {
+                    p.targetX = newShapeTargetPoints[i].x;
+                    p.targetY = newShapeTargetPoints[i].y;
+                    // 目標点が切り替わるので、速度を少しリセットしてスムーズな移行を促す
+                    p.vx *= 0.1; 
+                    p.vy *= 0.1; 
+                });
+                // currentShapeTypeを更新して、次回の描画で正しい目標に向かうようにする
+                currentShapeType = nextShapeType;
+            }
+
+            // キャンバス全体をクリア
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // ドットの位置を更新
+            points.forEach(p => {
+                if (isRepelling) {
+                    // 反発フェーズの場合、repelCenterから遠ざかる力を適用
+                    const dx = p.x - repelCenterX;
+                    const dy = p.y - repelCenterY;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const repelStrength = 0.5; // 反発の持続力
+
+                    if (distance > 1) {
+                        p.vx += (dx / distance) * repelStrength;
+                        p.vy += (dy / distance) * repelStrength;
+                    }
+                } else {
+                    // マウスに引き寄せられるフェーズ または 形状にまとまるフェーズ
+                    let targetX_for_particle, targetY_for_particle;
+                    if (isMouseActive) {
+                        // マウスがアクティブな場合、マウスの位置に引き寄せる
+                        targetX_for_particle = mouseX;
+                        targetY_for_particle = mouseY;
+                    } else {
+                        // マウスが非アクティブな場合、割り当てられた形状の目標点に引き寄せる
+                        targetX_for_particle = p.targetX;
+                        targetY_for_particle = p.targetY;
+                    }
+
+                    const attractionStrength = 0.005; // 引力の強さ
+                    const dx = targetX_for_particle - p.x;
+                    const dy = targetY_for_particle - p.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance > 1) { 
+                        p.vx += (dx / distance) * attractionStrength;
+                        p.vy += (dy / distance) * attractionStrength;
+                    } else {
+                        // 目標点に非常に近い場合、微調整して振動を防ぐ
+                        p.vx *= 0.95;
+                        p.vy *= 0.95;
+                    }
+
+                    // マウス非アクティブ時のランダムな揺らぎ（形状へ引き寄せられつつも動きを維持）
+                    if (!isMouseActive) {
+                        const jitter = 0.005; // 形状を明確にするため、以前より少し小さめに調整
+                        p.vx += (Math.random() - 0.5) * jitter;
+                        p.vy += (Math.random() - 0.5) * jitter;
+                    }
+                }
+                
+                // 速度をMAX_SPEEDに制限
+                const currentSpeed = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+                if (currentSpeed > MAX_SPEED) {
+                    p.vx = (p.vx / currentSpeed) * MAX_SPEED;
+                    p.vy = (p.vy / currentSpeed) * MAX_SPEED;
+                }
+
+                // ドットの位置を更新
+                p.x += p.vx;
+                p.y += p.vy;
+
+                // 壁との衝突判定を「巻き戻し（ラッピング）」に変更
+                // ドットがキャンバスの端から出たら、反対側の端から再出現させる
+                if (p.x < 0) {
+                    p.x = canvas.width;
+                } else if (p.x > canvas.width) {
+                    p.x = 0;
+                }
+
+                if (p.y < 0) {
+                    p.y = canvas.height;
+                } else if (p.y > canvas.height) {
+                    p.y = 0;
+                }
+            });
+
+            // 線を描画
+            ctx.lineWidth = LINE_THICKNESS;
+            ctx.strokeStyle = LINE_COLOR;
+            for (let i = 0; i < NUM_DOTS; i++) {
+                for (let j = i + 1; j < NUM_DOTS; j++) {
+                    const p1 = points[i];
+                    const p2 = points[j];
+
+                    const dx = p1.x - p2.x;
+                    const dy = p1.y - p2.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+
+                    // ラッピングされた境界を考慮して、線が途切れないようにする（最短距離で描画）
+                    let actualDx = dx;
+                    let actualDy = dy;
+
+                    // X方向のラッピングを考慮
+                    if (actualDx > canvas.width / 2) {
+                        actualDx -= canvas.width;
+                    } else if (actualDx < -canvas.width / 2) {
+                        actualDx += canvas.width;
+                    }
+
+                    // Y方向のラッピングを考慮
+                    if (actualDy > canvas.height / 2) {
+                        actualDy -= canvas.height;
+                    } else if (actualDy < -canvas.height / 2) {
+                        actualDy += canvas.height;
+                    }
+
+                    const actualDistance = Math.sqrt(actualDx * actualDx + actualDy * actualDy);
+
+                    if (actualDistance < LINE_CONNECTION_DISTANCE) {
+                        ctx.beginPath();
+                        // 波のアニメーションをY座標に適用
+                        ctx.moveTo(p1.x, p1.y + WAVE_AMPLITUDE * Math.sin(p1.x * WAVE_FREQUENCY + timestamp * WAVE_SPEED));
+                        
+                        // 巻き戻しを考慮して、適切な描画先を計算
+                        let targetX = p2.x;
+                        let targetY = p2.y;
+
+                        if (Math.abs(p1.x - p2.x) > canvas.width / 2) {
+                            if (p1.x < p2.x) targetX = p2.x - canvas.width;
+                            else targetX = p2.x + canvas.width;
+                        }
+                        if (Math.abs(p1.y - p2.y) > canvas.height / 2) {
+                            if (p1.y < p2.y) targetY = p2.y - canvas.height;
+                            else targetY = p2.y + canvas.height;
+                        }
+
+                        ctx.lineTo(targetX, targetY + WAVE_AMPLITUDE * Math.sin(targetX * WAVE_FREQUENCY + timestamp * WAVE_SPEED));
+                        ctx.stroke();
+                    }
+                }
+            }
+            
+            // ドット自体も描画（線の根元が見えるように）
+            points.forEach(p => {
+                drawDot(p.x, p.y + WAVE_AMPLITUDE * Math.sin(p.x * WAVE_FREQUENCY + timestamp * WAVE_SPEED), p.size);
+            });
+
+            // 次のフレームでアニメーションを継続
+            animationFrameId = requestAnimationFrame(animate);
+        }
+
+        // マウスイベントリスナーの設定 (MouseMoveでマウス位置を追跡)
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            mouseX = e.clientX - rect.left;
+            mouseY = e.clientY - rect.top;
+            isMouseActive = true;
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            isMouseActive = false;
+        });
+
+        // クリックイベントリスナーの設定 (クリックで拡散)
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            isRepelling = true; // 反発フェーズを開始
+            repelCenterX = clickX; // クリック位置を反発の中心に設定
+            repelCenterY = clickY;
+            repelEndTime = performance.now() + REPEL_DURATION; // 反発終了時間を設定
+
+            // クリックされたら、全ての点に即座に外向きの力を与える（爆発のような効果）
+            points.forEach(p => {
+                const dx = p.x - clickX;
+                const dy = p.y - clickY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist > 0) { // 中心ではない場合
+                    const forceMagnitude = INITIAL_REPEL_FORCE / (dist / 50 + 1); // 距離に応じて力を減衰
+                    p.vx += (dx / dist) * forceMagnitude;
+                    p.vy += (dy / dist) * forceMagnitude;
+                } else {
+                    // クリック位置にいる点への対処 (ランダムな初期爆発力)
+                    p.vx = (Math.random() - 0.5) * INITIAL_REPEL_FORCE;
+                    p.vy = (Math.random() - 0.5) * INITIAL_REPEL_FORCE;
+                }
+            });
+        });
+
+
+        // アニメーションを開始する関数
+        function startAnimation() {
+            initDots(); // ドットを初期化
+            animate(performance.now()); // アニメーションを開始
+        }
+
+        // ページロード時にアニメーションを開始
+        window.onload = startAnimation;
+    </script>
+</body>
+</html>
