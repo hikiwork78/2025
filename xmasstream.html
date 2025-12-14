@@ -4,20 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>xmasstream</title>
-    <!-- Tailwind CSSの読み込み (UIは削除しましたが、CSSスタイルとして残します) -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        'primary-black': '#000000',
-                        'primary-white': '#FFFFFF',
-                    },
-                }
-            }
-        }
-    </script>
+    
     <!-- Google Font: Cutive Mono (文字描画に使用) -->
     <link href="https://fonts.googleapis.com/css2?family=Cutive+Mono&display=swap" rel="stylesheet">
     
@@ -44,45 +31,63 @@
         canvas {
             display: block;
         }
-        /* UIオーバーレイは削除されました */
+        /* カメラ操作のヒント (削除対象) */
+        /* #info {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #000000;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            z-index: 10;
+            text-align: center;
+            opacity: 0.8;
+            user-select: none; 
+        } */
     </style>
 </head>
 <body>
     <!-- 3Dレンダリングコンテナ -->
     <div id="container"></div>
 
+    <!-- 情報オーバーレイ (削除対象) -->
+    <!-- <div id="info">MERRY CHRISTMAS STREAM - Drag to rotate view.</div> -->
+
     <script>
         // --- Three.js グローバル変数 ---
         let scene, camera, renderer, controls;
         let D_W, D_H;
-        let charSize; 
+        let charSize;
         
-        // --- アートワーク グローバル変数 ---
-        let characterSets = []; 
-        // UIが削除されたため、テキストをハードコードします。
-        let currentText = "FAST SCROLL MODE"; 
-        let globalStreamGroup; 
+        // --- アートワーク グローバル定数 ---
+        // Z軸の奥行き範囲と初期X軸の広がりをグローバル定数として定義
+        const DEPTH_RANGE = 800;
+        const INITIAL_X_SPREAD = 300; 
+
+        // ストリームデータを格納する配列。各要素は { chars: [], lineGeometry: ... } の構造を持つ
+        let characterSets = [];
+        // 表示テキスト
+        const currentText = "MERRY CHRISTMAS";
+        let globalStreamGroup;
         
         // --- デルタタイム関連変数 ---
         let lastTime = 0;
-        const FIXED_FPS_FACTOR = 1000 / 60; 
+        const FIXED_FPS_FACTOR = 1000 / 60; // 60fps基準の計算
 
         // --- アニメーション状態 ---
-        // Fast Scroll (状態 1) に固定
-        // UI操作がないため、この変数は実質的に固定値として機能します。
-        const animationState = 1; 
         const globalSpeedFactor = 4.0; // Fast Scroll の速度係数に固定
 
         // カラーパレット (背景: 白, ライン/文字: 黒)
-        const lineColor = 0x000000; 
+        const lineColor = 0x000000;
         
 
         /**
          * 文字を描画したテクスチャを持つ THREE.Sprite を作成する
-         * Create a THREE.Sprite with a texture of the given character.
-         * @param {string} text - The character to render.
-         * @param {number} size - Base size in 3D space.
-         * @param {number} color - Text color (0xRRGGBB).
+         * @param {string} text - 描画する文字。
+         * @param {number} size - 3D空間での基本サイズ。
+         * @param {number} color - 文字色 (0xRRGGBB)。
          * @returns {THREE.Sprite}
          */
         function createSprite(text, size, color) {
@@ -90,20 +95,20 @@
             const context = canvas.getContext('2d');
             
             // Sprite resolution
-            const resolution = 64; 
+            const resolution = 64;
             canvas.width = resolution;
             canvas.height = resolution;
 
-            // Use 'Cutive Mono' font
+            // 'Cutive Mono'フォントを使用
             context.font = `bold ${resolution * 0.8}px 'Cutive Mono', monospace`;
             context.textAlign = 'center';
             context.textBaseline = 'middle';
             
-            // Set draw color to black
+            // 描画色を黒に設定
             const hexColor = '#' + color.toString(16).padStart(6, '0');
             context.fillStyle = hexColor;
 
-            // Draw the character
+            // 文字を描画
             context.fillText(text, resolution / 2, resolution / 2);
 
             const texture = new THREE.CanvasTexture(canvas);
@@ -112,17 +117,18 @@
             const material = new THREE.SpriteMaterial({ 
                 map: texture,
                 transparent: true,
+                color: color 
             });
 
             const sprite = new THREE.Sprite(material);
-            sprite.scale.set(size * 2, size * 2, 1); 
+            // 3D空間での表示サイズを設定
+            sprite.scale.set(size * 2, size * 2, 1);
             return sprite;
         }
 
 
         /**
          * 3D環境のセットアップ
-         * Setup the Three.js environment.
          */
         function setupThreeJs() {
             D_W = window.innerWidth;
@@ -131,22 +137,26 @@
             // Scene
             scene = new THREE.Scene();
             
-            // Camera
+            // NOTE: フォグ設定を削除しました。
+            // scene.fog = new THREE.Fog(0xFFFFFF, 150, 450); // 削除
+
+            // Camera (Perspective)
             camera = new THREE.PerspectiveCamera(75, D_W / D_H, 0.1, 1000);
             camera.position.z = 150; 
 
             // Renderer
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(D_W, D_H);
-            renderer.setClearColor(0xFFFFFF); // Background color set to white
+            renderer.setClearColor(0xFFFFFF); // 背景色を白に設定
             
             const container = document.getElementById('container');
+            // 既存のcanvasがあればクリア
             while (container.firstChild) {
                 container.removeChild(container.firstChild);
             }
             container.appendChild(renderer.domElement);
 
-            // OrbitControls for camera interaction
+            // OrbitControls for camera interaction (ドラッグで回転、スクロールでズーム)
             controls = new THREE.OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true; 
             controls.dampingFactor = 0.05;
@@ -154,6 +164,8 @@
 
             // Global group for all streams
             globalStreamGroup = new THREE.Group();
+            // 初期でグループ全体を傾けることで3D感を強調
+            globalStreamGroup.rotation.x = -Math.PI / 16; 
             scene.add(globalStreamGroup);
             
             // Determine base size
@@ -164,51 +176,63 @@
 
         /**
          * 要素セット（ストリーム）を3D空間に初期配置します。
-         * Initializes character streams in 3D space.
          */
         function initializeCharacters() {
-            // Clear existing objects
+            // 既存のオブジェクトをクリアし、リソースを破棄
+            globalStreamGroup.children.forEach(child => child.traverse(object => {
+                if (object.geometry) object.geometry.dispose();
+                if (object.material) {
+                    const materials = Array.isArray(object.material) ? object.material : [object.material];
+                    materials.forEach(material => {
+                        if (material.map) material.map.dispose(); 
+                        material.dispose();
+                    });
+                }
+            }));
             globalStreamGroup.clear();
             characterSets = [];
 
-            // If text is empty, stop.
-            if (currentText.trim() === "") {
-                return;
-            }
+            if (currentText.trim() === "") return;
 
             const charLength = currentText.length;
-            const numStreams = 15; // Increased density
-            const depthRange = 500; 
-            const initialXSpread = 250; 
-
+            const numStreams = 20; // ストリーム数を増やして密度を向上
+            
             // Line Material (black, low opacity for thin appearance)
             const lineMaterial = new THREE.LineBasicMaterial({ 
                 color: lineColor, 
                 linewidth: 1, 
                 transparent: true, 
-                opacity: 0.15 
+                opacity: 0.15,
+                // フォグと相性が良いようにdepthWriteを無効にする
+                depthWrite: false
             });
 
             for (let i = 0; i < numStreams; i++) {
                 const streamGroup = new THREE.Group();
-                const currentSet = [];
+                // ストリームデータを保持する専用のオブジェクト
+                const currentStream = {
+                    chars: [],
+                    lineGeometry: null
+                };
                 
-                // Random initial Z and X position for the whole stream
-                const initialZOffset = Math.random() * depthRange - depthRange / 2;
-                const initialXOffset = Math.random() * initialXSpread - initialXSpread / 2;
+                // Random initial Z position across the entire range, and X position
+                // グローバル定数 DEPTH_RANGE と INITIAL_X_SPREAD を使用
+                const initialZOffset = Math.random() * DEPTH_RANGE - DEPTH_RANGE / 2;
+                const initialXOffset = Math.random() * INITIAL_X_SPREAD - INITIAL_X_SPREAD / 2;
 
                 // Character generation and placement
+                const points = [];
                 currentText.split('').forEach((char, index) => {
-                    // Y position is offset within the stream
+                    // Y position offset within the stream
                     const initialY = (index - charLength / 2) * charSize * 2.5; 
                     
-                    // Base speed (0.05 to 0.25)
+                    // Base speed
                     const baseSpeed = 0.05 + Math.random() * 0.2; 
                     
                     // Amplitude (subtle movement)
                     const amplitude = Math.random() * 0.5 + 0.2; 
                     const frequency = 0.01 + Math.random() * 0.02; 
-                    const movementType = Math.floor(Math.random() * 3); // For subtle movement variation
+                    const movementType = Math.floor(Math.random() * 3);
 
                     const charObj = {
                         char: char, 
@@ -230,107 +254,109 @@
                     streamGroup.add(sprite);
                     charObj.mesh = sprite;
                     
-                    currentSet.push(charObj);
+                    currentStream.chars.push(charObj); // 専用の配列に追加
+                    points.push(charObj.pos);
                 });
 
                 // Create Line Geometry to connect characters
-                const lineGeometry = new THREE.BufferGeometry().setFromPoints(currentSet.map(c => c.pos));
+                const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
                 const line = new THREE.Line(lineGeometry, lineMaterial);
                 streamGroup.add(line);
-                currentSet.lineGeometry = lineGeometry; 
+                currentStream.lineGeometry = lineGeometry; // Geometryへの参照をオブジェクトに保存
 
-                streamGroup.userData = { stream: currentSet }; 
+                streamGroup.userData = { stream: currentStream }; 
                 globalStreamGroup.add(streamGroup);
-                characterSets.push(currentSet);
+                characterSets.push(currentStream); // 専用のストリームオブジェクトを格納
             }
         }
 
         /**
          * 全ての要素セット内の要素を更新し、移動させます。
-         * Updates and moves all characters in all sets.
-         * @param {number} deltaTime - Time elapsed since the last frame (ms).
+         * @param {number} deltaTime - 前フレームからの経過時間 (ms)。
          */
         function updateCharacters(deltaTime) {
-            // Scaling factor for frame-rate independence
+            // フレームレートに依存しないようにスケーリング
             const speedScale = deltaTime / FIXED_FPS_FACTOR; 
 
-            const resetZ = -300; 
-            const amplitudeMultiplier = 2.0; // Fast Scroll's higher amplitude
+            const resetZ = -400; // Z座標のループ開始位置
+            const amplitudeMultiplier = 2.0;
 
-            characterSets.forEach(set => {
-                if (set.length === 0) return;
+            // characterSetsの要素は { chars: [], lineGeometry: ... } のオブジェクト
+            characterSets.forEach(stream => {
+                if (stream.chars.length === 0) return;
                 
-                const positions = set.lineGeometry.attributes.position.array;
+                // Line Geometryのposition属性配列を取得
+                const positions = stream.lineGeometry.attributes.position.array;
                 
-                set.forEach((char, index) => {
-                    // Update time for subtle movement
+                stream.chars.forEach((char, index) => { // stream.chars を反復処理
+                    // 動きの時間を更新
                     char.time += char.frequency * globalSpeedFactor * speedScale;
 
-                    // Calculate subtle movement component (subtleY is higher in fast scroll)
+                    // 揺らぎ成分の計算
                     let subtleY = 0;
                     switch (char.type) {
                         case 0: subtleY = Math.sin(char.time * 2) * (char.amplitude * 0.5 * amplitudeMultiplier); break;
                         case 1: subtleY = Math.cos(char.time * 0.5) * (char.amplitude * 0.8 * amplitudeMultiplier); break;
-                        case 2: subtleY = (Math.random() - 0.5) * 0.5 * amplitudeMultiplier; break;
+                        case 2: subtleY = (Math.random() - 0.5) * 0.5 * amplitudeMultiplier * Math.sin(char.time); break;
                     }
                     
-                    // --- Fast Scroll Mode (fixed) ---
-                    
-                    // Z movement (Fast Speed)
+                    // Z軸の移動 (Fast Scroll Speed)
                     const speed = char.baseVx * globalSpeedFactor;
                     char.pos.z += speed * speedScale; 
 
-                    // Y position is base coordinate + subtle movement
+                    // Y位置に揺らぎを加算
                     char.pos.y = char.baseY + subtleY;
                     
-                    // Add slight random noise to X position
-                    char.pos.x += (Math.random() - 0.5) * 0.05 * globalSpeedFactor * speedScale; 
+                    // X位置にわずかなノイズを加算し、揺らぎを表現
+                    char.pos.x = char.initialPos.x + Math.sin(char.time * 0.3) * 5; 
 
-                    // Loop back when passing the camera (Z > 300)
+                    // カメラを通り過ぎたらZ座標をリセットし、ループさせる
                     if (char.pos.z > 300) {
                         char.pos.z = resetZ; 
-                        char.pos.x = char.initialPos.x + (Math.random() - 0.5) * 50;
+                        // グローバル定数 INITIAL_X_SPREAD を使用してX位置をリセット
+                        char.initialPos.x = Math.random() * INITIAL_X_SPREAD - INITIAL_X_SPREAD / 2;
+                        char.pos.x = char.initialPos.x;
                         char.pos.y = char.initialPos.y;
-                        char.time = Math.random() * 100; // Reset time for randomized movement start
+                        char.time = Math.random() * 100; // 動きの開始時間をランダムにリセット
                     }
 
-                    // Update 3D mesh position
+                    // 3Dメッシュの位置を更新
                     char.mesh.position.copy(char.pos);
 
-                    // Update Line Geometry vertices
+                    // Line Geometryの頂点データを更新
                     positions[index * 3] = char.pos.x;
                     positions[index * 3 + 1] = char.pos.y;
                     positions[index * 3 + 2] = char.pos.z;
                 });
                 
-                // Notify Three.js that vertices have changed
-                set.lineGeometry.attributes.position.needsUpdate = true;
+                // 頂点データが変更されたことをThree.jsに通知
+                stream.lineGeometry.attributes.position.needsUpdate = true;
             });
+            
+            // グループ全体の回転を加えて、さらなるダイナミズムを追加
+            globalStreamGroup.rotation.y += 0.0001 * globalSpeedFactor * speedScale;
+            globalStreamGroup.rotation.z += 0.00005 * globalSpeedFactor * speedScale;
         }
 
         /**
          * メインのアニメーションループ
-         * Main animation loop.
          */
         function animate(time) {
             requestAnimationFrame(animate);
 
-            // Calculate delta time
+            // デルタタイムの計算
             const deltaTime = time - lastTime;
             lastTime = time;
 
-            // Update camera controls
+            // カメラ操作の更新
             controls.update(); 
             
-            // Update all element positions
+            // 全ての要素の位置を更新
             updateCharacters(deltaTime); 
             
-            // Render the scene
+            // シーンのレンダリング
             renderer.render(scene, camera);
         }
-
-        // --- UI操作ロジック ---
-        // テキスト入力UIが削除されたため、関連関数も削除されます。
 
         /** ウィンドウリサイズハンドラ */
         window.addEventListener('resize', () => {
